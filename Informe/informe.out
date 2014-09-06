@@ -1,0 +1,7 @@
+\BOOKMARK [1][-]{section.1}{GDT y modo protegido.}{}
+\BOOKMARK [1][-]{section.2}{IDT y rutinas de atenci\363n de excepciones}{}
+\BOOKMARK [1][-]{section.3}{Paginaci\363n y rutinas de pantalla}{}
+\BOOKMARK [1][-]{section.4}{Memory Management Unit}{}
+\BOOKMARK [1][-]{section.5}{Interrupciones de hardware y syscalls}{}
+\BOOKMARK [1][-]{section.6}{TSS}{}
+\BOOKMARK [1][-]{section.7}{Scheduler}{}

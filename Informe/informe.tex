@@ -1,0 +1,623 @@
+
+\documentclass[10pt, a4paper]{article}
+\usepackage[paper=a4paper, left=1.5cm, right=1.5cm, bottom=1.5cm, top=3.5cm]{geometry}
+\usepackage[latin1]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{indentfirst}
+\usepackage{framed}
+\usepackage{fancyhdr}
+\usepackage{latexsym}
+\usepackage{lastpage}
+\usepackage{caratula}
+\usepackage[colorlinks=true, linkcolor=blue]{hyperref}
+\usepackage{calc}
+\usepackage{graphicx}
+\usepackage{color}
+\usepackage{epstopdf}
+\usepackage{epsfig}
+\usepackage{listings}
+\lstset{language=C}
+\newcommand{\f}[1]{\text{#1}}
+
+\sloppy
+
+\hypersetup{%
+ % Para que el PDF se abra a p�gina completa.
+ pdfstartview= {FitH \hypercalcbp{\paperheight-\topmargin-1in-\headheight}},
+ pdfauthor={C�tedra de Algoritmos y Estructuras de Datos II - DC - UBA},
+ pdfkeywords={TADs b�sicos},
+ pdfsubject={Tipos abstractos de datos b�sicos}
+}
+
+\parskip=5pt % 10pt es el tama�o de fuente
+
+% Pongo en 0 la distancia extra entre �temes.
+\let\olditemize\itemize
+\def\itemize{\olditemize\itemsep=0pt}
+
+% Acomodo fancyhdr.
+\pagestyle{fancy}
+\thispagestyle{fancy}
+\addtolength{\headheight}{1pt}
+\cfoot{\thepage /\pageref{LastPage}}
+\renewcommand{\footrulewidth}{0.4pt}
+
+\date{}
+
+\begin{document}
+
+
+\materia{Organizaci\'on del Computador II}
+\titulo{TP N\textdegree3}
+\grupo{Grupo Pistacho/Chungo}
+
+
+\integrante{Axel Straminsky}{769/11}{axelstraminsky@gmail.com}
+\integrante{Lucas Romero}{440/12}{lucasrafael.romero@gmail.com}
+\integrante{Matias Pizzagalli}{257/12}{matipizza@gmail.com}
+
+
+\maketitle
+
+
+\section{GDT y modo protegido.}
+
+Para empezar el primer objetivo del kernel es pasar a modo protegido. Para realizar esto primero deshabilita
+las interrupciones, habilita la l\'inea A20 y carga la Global Descriptor Table (GDT). El kernel carga la GDT
+con la instrucci\'on " lgdt [GDT\_DESC] " donde GDT\_DESC es un descriptor en un struct declarado en el archivo
+gdt.h. El descriptor contiene el tama\~no de la GDT y su direcci\'on (En ese orden).
+
+La GDT que carga es inicializada en el archivo gdt.c. En principio se cargan 4 descriptores: 2 segmentos de datos
+y 2 de c\'odigo. De esos segmentos uno de c\'odigo y uno de datos tienen privilegio 0 (kernel) y los otros dos
+cuentan con privilegio 3 (usuario). Estos cuatro descriptores se encuentran en los \'indices 0x12 a 0x14 ya que
+las primeras 18 entradas estan reservadas por la c\'atedra.
+
+Los cuatro segmentos tienen base en 0x00000000 y l\'imite 0x6FFFF que corresponden con un modelo de segmentaci\'on
+flat. Adem\'as, los segmentos de c\'odigo permiten la lectura y los de datos permiten la escritura. Todos los
+descriptores tienen el bit Default/Big seteado en 1 de manera que los segmentos son de 32 bits y est\'an todos presentes.
+Para los 4 segmentos, el bit de granularidad est\'a en 1.
+
+Entonces, los 4 descriptores de segmento quedan seteados de esta manera:
+
+
+\begin{center}
+\begin{tabular}{| c || c || c || c || c |}
+	\hline
+		Atribute & Code Kernel & Data Kernel & Code User & Data User \\
+	\hline
+		limit(0:15) & 0xFFFF & 0xFFFF & 0xFFFF & 0xFFFF \\
+		base(0:15) & 0x0000 & 0x0000 & 0x0000 & 0x0000 \\
+		base(23:16) & 0x00 & 0x00 & 0x00 & 0x00 \\
+		type & 0x0A & 0x02 & 0x0A & 0x02 \\
+		s & 0x01 & 0x01 & 0x01 & 0x01 \\
+		dpl & 0x00 & 0x00 & 0x03 & 0x03 \\
+		p & 0x01 & 0x01 & 0x01 & 0x01 \\
+		limit(16:19) & 0x06 & 0x06 & 0x06 & 0x06 \\
+		avl & 0x00 & 0x00 & 0x00 & 0x00 \\
+		l & 0x00 & 0x00 & 0x00 & 0x00 \\
+		d/b & 0x01 & 0x01 & 0x01 & 0x01 \\
+		g & 0x01 & 0x01 & 0x01 & 0x01 \\
+		base(31:24) & 0x00 & 0x00 & 0x00 & 0x00\\
+	\hline
+	
+
+\end{tabular}
+\end{center}
+
+Ya con la GDT inicializada y cargada podemos entrar en modo protegido. para hacer esto simplemente cargamos el
+contenido del registro de control 0 (cr0) en eax, efectuamos un 'or eax, 1' y movemos ese resultado de vuelta a
+cr0. De esta manera queda seteado el bit PE (Protect Enable) y empezamos a trabajar en modo protegido.
+
+Lo siguiente ser\'ia darle a los selectores de segmento su valor correspondiente. Primero efectuamos la instrucci\'on
+" jmp 0x90:mp ", (mp es un label situado exactamente luego de la instrucci\'on) con esta simple instrucci\'on saltamos
+al segmento de c\'odigo de privilegio 0 y ponemos en CS el \'indice para este segmento. Para el resto de los selectores
+simplemente movemos 0x98 al selector (\'indice 0x13) para que queden apuntando al segmento de datos del kernel. Luego
+de realizar esto seteamos la pila del kernel con la instrucci\'on " mov esp, 0x27000 ".
+
+Lo que se nos pide a continuaci\'on es armar otro segmento que describa la posici\'on en memoria de la pantalla que
+solo pueda ser accedido por el kernel. Con este fin declaramos en el archivo gdt.c otra entrada a la gdt en el \'indice
+0x15 que describa un segmento de datos de 32 bit con privilegio 0 y que sea de lectura y escritura. La base de este
+nuevo segmento est\'a en la direcci\'on 0xB8000 y tiene un l\'imite de 0x7FFF. El bit de granularidad est\'a en 0
+con lo cual el l\'imite se calcula normalmente.
+
+
+\begin{center}
+\begin{tabular}{| c || c |}
+	\hline
+		Atribute & Screen Area\\
+	\hline
+		limit(0:15) & 0x7FFF\\
+		base(0:15) & 0x8000 \\
+		base(23:16) & 0x0B \\
+		type & 0x0A \\
+		s & 0x01 \\
+		dpl & 0x00\\
+		p & 0x01 \\
+		limit(16:19) & 0x00\\
+		avl & 0x00\\
+		l & 0x00\\
+		d/b & 0x01\\
+		g & 0x00\\
+		base(31:24) & 0x00\\
+	\hline
+
+\end{tabular}
+\end{center}
+
+Con este \'ultimo segmento podemos terminar el primer ejercicio y escribir la rutina requerida. Esta rutina se
+puede dividir en 2 partes. La primera, una llamada a una funci\'on en C que limpia la pantalla y la deja en
+blanco, esta funci\'on se encuentra en screen.c. La segunda, son dos peque\~nos ciclos en Assembler que cada uno
+se encarga de pintar la primera o la \'ultima l\'inea de la pantalla de fondo negro con caracteres blancos usando el
+segmento descripto en el punto anterior.
+
+
+\section{IDT y rutinas de atenci\'on de excepciones}
+
+Ya en modo protegido el objetivo consiste en armar una Interruption Descriptor Table (IDT) y escribir las rutinas de atenci\'on,
+para poder atender en principio las excepciones que puedan surgir y m\'as adelante las interrupciones de reloj, teclado y syscalls.
+
+Para este prop\'osito hay definida una macro en C para completar las entradas de la IDT.
+
+\begin{footnotesize}
+\begin{lstlisting}
+
+#define IDT_ENTRY(numero, privilegio)
+idt[numero].offset_0_15 = (unsigned short) ((unsigned int)(&_isr ## numero) & (unsigned int) 0xFFFF);
+idt[numero].segsel = (unsigned short) 0x90;
+idt[numero].attr = (unsigned short) (0x8E00  | (privilegio << 13));
+idt[numero].offset_16_31 = (unsigned short) ((unsigned int)(&_isr ## numero) >> 16 & (unsigned int) 0xFFFF);
+
+\end{lstlisting}
+\end{footnotesize}
+
+De esta forma, cuando llamamos a idt\_inicializar() inicializamos las primeras 20 entradas de la IDT con los siguientes valores:
+
+\begin{center}
+\begin{tabular}{| c || c |}
+
+	\hline
+		Atributo & Valor\\
+	\hline
+		Selector & 0x90 (Kernel data segment)\\
+		Offset & (Offset correspondiente a la isr de la excepci\'on)\\
+		Tipo & 0x0E (Interrupt gate, 32-bit)\\
+		DPL & 0x00\\
+		Presente & 0x01\\
+		Sin usar & 0x00\\
+	\hline
+
+\end{tabular}
+\end{center}
+
+Para las rutinas de atenci\'on de las excepciones escribimos una macro en assembler que se ocupa de detectar la excepci\'on,
+imprimirla en pantalla y colgar la ejecuci\'on ejecutando jmp \$ .
+
+\begin{verbatim}
+
+%macro ISR 1
+global _isr%1
+
+_isr%1:
+.loopear:
+	
+    cli
+    pushad
+	
+    mov eax, interrupciones
+    mov ebx, %1 
+		
+    mov eax, [eax + ebx * 4]
+	
+    push eax
+    call imprimir_interrupcion
+    pop eax
+	
+    popad
+    sti
+	
+	
+%    jmp $
+
+%endmacro
+
+\end{verbatim}
+
+
+Donde interrupciones es un arreglo de strings que contienen los mensajes a imprimir por cada excepci\'on
+e imprimir\_interrucion es una rutina que toma un string y lo imprime en la parte correspondiente al \'ultimo problema.
+
+Para testear esto generamos excepciones (tanto intencionales como accidentales) como divide by zero, page fault,
+general protection, invalid tss; entre otras. Los resultados fueron los esperados.
+
+
+\section{Paginaci\'on y rutinas de pantalla}
+
+Lo primero fue escribir las rutinas que escriben los buffer de video para la pantalla de mapa y de estado. Estas
+funciones fueron hechas en C y escriben dos buffer, uno en la direcci\'on 0x2D000 y otro en la direcci\'on 0x2E000.
+Estos corresponder\'an a las pantallas de estado y de mapa respectivamente. Est\'an escritas para presentar una versi\'on gen\'erica
+de las figuras 9 y 10.
+
+%Poner screenshots de la pantalla de mapa y de estado? que opinan?
+
+Luego, para activar paginaci\'on lo \'unico que hay que hacer es setear el bit 31 del registro cr0, pero para llegar a eso
+primero hay que armar las estructuras necesarias. En este caso, un directorio de p\'aginas y por lo menos una entrada
+en este directorio con una tabla de p\'aginas que tenga entradas v\'alidas para mapear memoria.
+
+Con este fin, cargamos en el registro cr3 la posici\'on que ocupar\'a el page directory del kernel (0x28000) y llamamos
+a la funci\'on mmu\_inicializar\_dir\_kernel. Es una funci\'on escrita en C y que, como lo indica su nombre, se encarga de
+inicializar el mapa de memoria del kernel.
+
+Previamente a esto, utilizamos las funciones inicializar\_page\_directory e inicializar\_page\_table, las cuales ponen en 0 todos 
+los atributos de las entradas del page directory y page table, salvo el atributo Read/Write que dejan en 1. Esto se hace tanto para
+la p\'agina del page directory como para las 2 page tables. Ya inicializadas las tablas, se las modifica para que
+realicen identity mapping, las 1024 entradas de la primera tabla (los primeros 4 MB) y las primeras 896 entradas de la segunda
+tabla (los 3,5 MB restantes). Una vez que tienen seteados los valores, son finalmente agregadas al page directory. Las primeras
+256 p\'aginas (1 MB) las mapea con privilegio 0 y el resto con privilegio 3
+
+Finalmente el directorio, y tablas quedan con los siguientes valores:
+
+\begin{center}
+\begin{tabular}{| c || c | c | c | c | c | c | c | c | c |}
+
+	\hline
+		PDE & Base & G & PS & A & PCD & PWT & U/S & R/W & P\\
+	\hline
+		0 & (Base de la tabla) & 0b & 0b & 0b & 0b & 0b & 0b & 1b & 1b \\
+		1 & (Base de la tabla) & 0b & 0b & 0b & 0b & 0b & 0b & 1b & 1b \\
+		2 a  1023 & 0x00 & 0b & 0b & 0b & 0b & 0b & 0b & 1b & 0b\\
+	\hline
+
+\end{tabular}
+
+
+\begin{tabular}{| c | c || c | c | c | c | c | c | c | c | c |}
+
+	\hline
+		Tabla & PTE & Base & G & PS & A & PCD & PWT & U/S & R/W & P\\
+	\hline
+		0 & (primeras 256 n) & n & 0b & 0b & 0b & 0b & 0b & 0b & 1b & 1b \\
+		0 & (restantes 768 n) & n & 0b & 0b & 0b & 0b & 0b & 1b & 1b & 1b \\
+		1 & (primeras 896 n) & n + 1024 & 0b & 0b & 0b & 0b & 0b & 1b & 1b & 1b \\
+		1 & (restantes)& 0x00 & 0b & 0b & 0b & 0b & 0b & 0b & 1b & 0b\\
+	\hline
+
+\end{tabular}
+\end{center}
+\section{Memory Management Unit}
+
+Para inicializar el mapa de memoria de las tareas, usamos dos funciones: inicializar\_tareas y mmu\_inicializar\_dir\_tareas. El objetivo de la primera es
+inicializar los directorios y tablas de p\'aginas de las tareas. Primero inicializa todos los valores en 0, salvando el bit de read/write, luego 
+mapea los primeros 7,5 MB de p\'aginas con identity mapping de nivel 0 y agrega esas 2 p\'aginas en las primeras 2 posiciones del page directory. 
+Finalmente termina agregando las 3 p\'aginas de la tarea en la posici\'on 0x100 del directorio de p\'aginas.
+
+Cada tarea cuenta con 6 p\'aginas: 1 para el page directory, 3 para las page tables, 1 para la pila de c\'odigo, y otra para la pila de la bandera. Estas p\'aginas 
+se encuentran a partir de la posicion 0x31000.
+La funci\'on mmu\_inicializar\_dir\_tareas se encarga de mapear dos p\'aginas en el mar y una p\'agina en la tierra en el mapa de memoria de cada tarea.
+Luego de esto copia las dos p\'aginas de c\'odigo de la tarea y la bandera en el area de mar y setea los atributos relacionados con la memoria para cada
+tarea. Finalmente, inicializa el arreglo global direcciones\_tareas, el cual guarda las direcciones f\'isicas actuales de las 3 p\'aginas
+de cada tarea, informaci\'on que utilizamos en las funciones de pantalla.
+
+Al terminar la inicializaci\'on de la mmu cada tarea mapea  las siguientes direcciones:
+
+\begin{center}
+\begin{tabular}{| c | c |}
+
+	\hline
+		Direcci\'on virtual & Direcci\'on f\'isica \\
+	\hline
+		0x00000000-0x0077ffff & 0x00000000-0x0077ffff  \\
+		0x40000000-0x40001fff & 0x100000 + (0x2000 * id\_tarea) - 0x101fff + (0x2000 * id\_tarea) \\
+		0x40002000-0x40002fff & 0x00000000-0x00000fff \\
+	\hline
+
+\end{tabular}
+\end{center}
+
+Para realizar las dos funciones descriptas mas arriba nos proponian implementar y utilizar dos funciones mmu\_mapear\_pagina y mmu\_unmapear\_pagina, pero por decisiones
+ nuestras, decidimos implementar la primera tal cual proponen pero la segunda retocarla para darle un mejor uso. Ambas funciones luego nos resultan utiles para otras
+  aplicaciones como en los syscalls de navegar y fondear.
+ 
+%~ La primera de ellas tiene la siguiente aridad mmu\_mapear\_pagina(unsigned int virtual, unsigned int cr3, unsigned int fisica, unsigned int attr) que lo que hace es:
+ %~ Dividir la direccion virtual en sus tres partes, los 12 bits de offset, los 10 bits de la page table y los 10 bits de la page directory.
+ %~ Luego con el cr3 (que contiene la direccion base del directorio) que nos pasan por parametro buscamos la entrada del directorio correspondiente a los 10 bits de la
+ %~ page directory que obtuvimos antes. De esa entrada del directorio obtenemos la direccion base de la tabla de paginas y junto con los 10 bits de la page table que
+ %~ obtuvimos mas arriba conseguimos la entrada de la pagina de tablas donde debemos colocar los datos correspondientes para mapear la direccion fisica que nos pasan 
+ %~ por parametros con los atributos que nos pasan por parametro.
+ 
+Lo que hace la primera de ellas basicamente es obtener la informacion sobre la page table y la page directory de la direccion virtual pasada por parametro, para acceder
+ a las entradas en el directorio y tabla de paginas correspondiente. para mapear ahi la direccion fisica que nos pasan por parametro con los atributos tambien pasados por
+ parametro.
+ 
+\begin{footnotesize}
+\begin{lstlisting}
+
+void mmu_mapear_pagina(unsigned int virtual, unsigned int cr3, unsigned int fisica, unsigned int attr) {
+	
+	page_directory_entry* page_directory = (page_directory_entry*) cr3;
+	virtual = virtual >> 12; //borro el offset
+	unsigned int pte = virtual & 0x3ff;
+	virtual = virtual >> 10; //borro el table
+	unsigned int pde = virtual;
+	
+	unsigned int page_table_address = (page_directory[pde].page_table_address << 12);
+	
+	page_table_entry* page_table = (page_table_entry*) page_table_address;
+
+	page_table[pte].present = attr & 0x1;
+	page_table[pte].read_write = (attr & 0x2) >> 1;
+	page_table[pte].user_supervisor = (attr & 0x4) >> 2;
+	page_table[pte].physical_page_address = (fisica >> 12);
+
+}
+
+\end{lstlisting}
+\end{footnotesize}
+
+La segunda funcion, mmu\_unmapear\_pagina, decidimos implementarla diferente para poder utilizarla de mejor manera. Lo que decidimos es que la funcion en vez de unmapear la direccion
+ virtual pasada por parametro, que solamente nos devuelva en que direccion fisica se encuentra mapeada, para luego nosotros encargarnos de pisar esa misma direccion con la funcion
+ descripta mas arriba.
+ 
+La implementacion de la funcion basicamente lo que hace es descomponer la direccion virtual en sus tres componentes para luego utilizar esas componentes para acceder a las entradas
+ en el directorio y tabla de paginas correspondientes y obtener la direccion fisica a donde se encuentra mapeada esa direccion virtual.
+
+\begin{footnotesize}
+\begin{lstlisting}
+
+unsigned int mmu_unmapear_pagina(unsigned int virtual, unsigned int cr3) {
+
+	page_directory_entry* page_directory = (page_directory_entry*) cr3;
+	virtual = virtual >> 12; //borro el offset
+	unsigned int pte = virtual & 0x3ff;
+	virtual = virtual >> 10; //borro el table
+	unsigned int pde = virtual;
+
+	page_table_entry* page_table = (page_table_entry*) (page_directory[pde].page_table_address << 12);
+	unsigned int fisica = (page_table[pte].physical_page_address << 12);
+
+	return fisica;
+
+}
+\end{lstlisting}
+\end{footnotesize}
+
+
+Adicionalmente, aprovechamos para obtener los offsets de las funciones bandera. Para obtener estos offsets de la direcci\'on virtual 0x40001FFC de cada tarea, lo que hicimos fue lo siguiente: como la direcci\'on virtual
+0x40001FFC hace referencia a la segunda p\'agina f\'isica de cada tarea, con un offset de 0x1FFC, creamos un arreglo global llamado offsets\_funciones\_bandera, 
+en donde recopilamos esta informaci\'on. Para esto, directamente accedimos a las posiciones 0x10000, 0x12000, etc.,
+con un offset de 0x1FFC. Luego, a la hora de inicializar o reinicializar las TSSs de las banderas, utilizamos directamente los offsets de este arreglo, a los cuales les sumamos la direcci\'on virtual 0x40000000, valor que 
+utilizamos como EIP de las mismas.
+
+
+
+\section{Interrupciones de hardware y syscalls}
+
+Al igual que para las excepciones, usamos el define en el el archivo idt.c para inicializar las entradas en la IDT que corresponder\'an a las interrupciones
+de reloj (Int 0x20), teclado (Int 0x21) y syscalls (Int 0x50 e Int 0x66). Las entradas de la IDT quedan con la siguiente informaci\'on:
+
+\begin{center}
+\begin{tabular}{| c || c | c |}
+
+	\hline
+		Atributo & Int 0x20 y 0x21 & Int 0x50 y 0x66\\
+	\hline
+		Selector & 0x90 (Kernel data segment) & 0x90 (Kernel data segment)\\
+		Offset & (Offset correspondiente a la isr de la interrupci\'on) & (Offset correspondiente a la isr de la interrupci\'on)\\
+		Tipo & 0x0E (Interrupt gate, 32-bit) & 0x0E (Interrupt gate, 32-bit)\\
+		DPL & 0x00 & 0x03\\
+		Presente & 0x01 & 0x01\\
+		Sin usar & 0x00 & 0x00\\
+	\hline
+\end{tabular}
+\end{center}
+
+Con las entradas de la IDT ya definidas, el paso siguiente es escribir las rutinas de atenci\'on. En esta etapa, solo se le dan funcionalidades b\'asicas,
+sin embargo posteriormente las interrupciones ser\'an las que realicen el trabajo de scheduling.
+
+Inicialmente, la interrupci\'on de reloj solo se encarga de llamar a la funci\'on proximo\_reloj. La interrupci\'on de teclado muestra los buffer de video
+de mapa y estado e imprime un n\'umero en la esquina superior derecha de la pantalla. Las interrupciones 0x50 y 0x66 cambian el valor de eax por 0x42
+
+Estas son las rutinas:
+
+\begin{verbatim}
+_isr32:
+    cli
+    pushad
+
+    call fin_intr_pic1
+
+    call proximo_reloj
+
+    popad
+    sti
+    iret
+
+_isr33:
+
+    cli
+    pushad
+    call fin_intr_pic1
+	
+    xor eax, eax
+    in al, puerto_teclado
+	
+    push eax
+    call interrupcion_teclado
+    add esp, 4
+	
+;Interrupcion_teclado es una funcion en C que imprime en pantalla el numero
+;presionado o que cambia los buffer a mapa o estado segun corresponda
+
+    popad
+    sti
+    iret
+
+;isr 0x50
+_isr80:
+
+    mov eax, 0x42
+	iret
+
+;isr 0x66
+_isr102:
+
+    mov eax, 0x42
+	iret
+
+\end{verbatim}
+
+
+
+\section{TSS}
+
+Lo primero que hicimos fue definir las entradas de la GDT que corresponder\'ian a los descriptores de las TSS. Estas ocupan desde el \'indice
+23 al 40. Son 2 por cada tarea (nav\'io y bandera), una para la tarea idle y una para la tarea inicial. Todas son cargadas con la misma informaci\'on.
+El atributo base es luego cargado din\'amicamente al inicializar las tss. Las entradas de la GDT quedan con la siguiente informaci\'on para todas las tareas.
+
+\begin{center}
+\begin{tabular}{| c || c |}
+	\hline
+		Atributo & Valor\\
+	\hline
+		limit(0:15) & 0x0067\\
+		base(0:15) & 0x0000 \\
+		base(23:16) & 0x00 \\
+		type & 0x09 \\
+		s & 0x00 \\
+		dpl & 0x00\\
+		p & 0x01 \\
+		limit(16:19) & 0x00\\
+		avl & 0x00\\
+		l & 0x00\\
+		d/b & 0x00\\
+		g & 0x00\\
+		base(31:24) & 0x00\\
+	\hline
+
+\end{tabular}
+\end{center}
+
+Con las entradas de la GDT inicializadas, el paso siguiente es setear los valores del tss para cada tarea, incluyendo las tareas idle e inicial.
+El enuniciado dicta que valores deben llevar las tss de las tareas idle, nav\'io y bandera. En el caso de la tss inicial solo hay que poner una tss valida
+en la gdt pues solo se usa para dar el primer salto. Para inicializar la tarea idle, llamamos a la funci\'on tss\_inicilizar\_tarea\_idle
+
+\begin{center}
+\begin{tabular}{| c || c |}
+
+	\hline
+		Atributo & idle \\
+	\hline
+		cs & 0x90 \\
+		ds, es, fs, gs, ss & 0x98 \\
+		registros de prop\'osito general & 0x00 \\
+		ebp, esp & 0x40001C00 \\
+		eflags & 0x202 \\
+		eip & 0x40000000 \\
+		esp0 & 0x2A000 \\
+		ss0 & 0x98 \\
+		cr3 & 0x28000 \\
+	\hline
+
+\end{tabular}
+\end{center}
+
+Una de las particularidades del procesador es que permite una conmutaci\'on de tareas autom\'atica, facilitando bastante el trabajo. Usando la instrucci\'on
+\verb| jmp selector: offset |, donde selector es un selector de segmento que apunte a una entrada valida de tss en la gdt, el procesador ejecuta un task switch
+hacia esa tarea sin la necesidad de trabajo adicional.
+
+
+\section{Scheduler}
+
+Para inicializar los arreglos de tss de las tareas usamos la funcion tss\_inicializar. Es una funci\'on en el archivo tss.c que se ocupa de inicializar las tss
+de las tareas y las banderas. Los valores son los provistos por la c\'atedra y quedan de la siguiente manera:
+
+\begin{center}
+\begin{tabular}{| c || c | c |}
+
+	\hline
+		Atributo & nav\'io & bandera \\
+	\hline
+		cs & 0xA3 & 0xA3 \\
+		ds, es, fs, gs, ss & 0xAB & 0xAB \\
+		registros de prop\'osito general & 0x00 & 0x00 \\
+		ebp, esp & 0x40001C00 & 0x40001FFC \\
+		eflags & 0x202 & 0x202 \\
+		eip & 0x40000000 & [0x40001FFC] + 0x40000000 \\
+		esp0 & 0x35000 + (0x6000 * id\_tarea) & 0x36000 + (0x6000 * id\_tarea) \\
+		ss0 & 0x98 & 0x98 \\
+		cr3 & 0x31000 + (0x6000 * id\_tarea) & 0x31000 + (0x6000 * id\_tarea) \\
+	\hline
+
+\end{tabular}
+\end{center}
+
+Donde id\_tarea es el n\'umero de tarea a la cual se hace referencia.Los campos no mencionados tienen valor 0x00.
+
+El paso siguiente es implementar las funciones sched\_proximo\_indice() y sched\_proxima\_bandera. Estas dos funciones las implementamos en C en el archivo sched.c.
+Y las escribimos as\'i:
+
+\begin{lstlisting}
+unsigned short sched_proximo_indice() {
+	
+	unsigned short i = (ultima_tarea_ejecutada) % 8;
+       
+    while (tareas_corriendo[i] == 0) {
+               
+    	i = (i + 1) % 8; //Si no hay tareas corriendo, se cuelga.
+               
+    }
+       
+    return tareas_corriendo[i];
+	
+}
+\end{lstlisting}
+
+ultima\_tarea\_ejecutada es una variable global sobre la que se escribe el id\_tarea de la \'ultima tarea que se ejecut\'o y el array tareas\_corriendo es un array que
+tiene en cada \'indice el \'indice de la gdt correspondiente a la tarea si la tarea est\'a corriendo o 0x00 si la tarea fue desalojada.
+
+\begin{lstlisting}
+short sched_proxima_bandera() {
+
+	static unsigned short i = 0;
+	while(i < 8) {
+
+		if (banderas_corriendo[i] != 0) {
+			i++;
+			return banderas_corriendo[i-1]; 
+	
+		} else {
+	
+			i++;
+		}
+	}
+	
+	i = 0;
+	return -1;
+	
+}
+
+\end{lstlisting}
+
+Donde el array banderas\_corriendo es un array que tiene en cada \'indice el \'indice de la gdt correspondiente a la bandera si la tarea est\'a corriendo o 0x00 si la tarea fue desalojada.
+
+Con esas dos funciones hechas, lo siguiente que pide el enunciado es modificar la int 0x50 para que responda a los syscalls seg\'un corresponda. Lo primero que hace la int 0x50 es desactivar
+las interrupciones y chequear que quien la llam\'o no haya sido una bandera. Si ese fuera el caso, desaloja la tarea y la bandera, e imprime en pantalla el \'ultimo problema. Si la llam\'o una
+tarea compara el par\'ametro que se le pasa por eax y decide que servicio llamar: game\_fondear, game\_canonear o game\_navegar. Estas son 3 funciones escritas en C en el archivo game.c que
+realizan el servicio en s\'i. Si el parametro en eax no coincide con ning\'un c\'odigo de servicio, salta al final de la interrupci\'on. Al final la int 0x50 vuelve a setear las interrupciones
+y salta a la tarea idle.
+
+A continuaci\'on modificamos la int 0x20 (reloj) para que en cada tick haga la conmutaci\'on de tareas. Primero chequea que no se est\'e ejecutando una bandera, de ser as\'i desaloja la tarea 
+y su bandera. Despu\'es chequea que la pr\'oxima tarea a saltar no sea la misma que se est\'a ejecutando, si es as\'i no salta y simplemente hace un iret. Si el \'indice al cu\'al saltar no
+corresponde a la tarea actual, escribe el selector en una variable local y hace un jmp far usando esa variable.
+
+Una vez hecho esto, agregamos un contador: contador\_bandera en 0. Cada vez que se va a saltar a una tarea, se aumenta en 1 el contador. Si el contador est\'a en 3 empieza a llamar, una por una
+las banderas h\'abiles usando la funci\'on sched\_proxima\_bandera. Una vez que llam\'o a la \'ultima vuelve a setear el contador en 0 para que la pr\'oxima interrupci\'on de reloj llame a la tarea
+que corresponda.
+
+Finalmente, lo \'unico que queda es modificar las isr de las excepciones para que impriman en pantalla el \'ultimo problema, desalojen la tarea que las produjo y salten a la idle.
+Para hacer esto lo primero que chequea la excepci\'on es si tiene un error code o no, porque esto cambia la forma de pushear par\'ametros para la funci\'on imprimir\_ultimo\_problema, una funci\'on
+escrita en C que se encuentra en el archivo screen.c. Ya llamada la funci\'on chequea si la produjo una bandera o una tarea, y desaloja ambas de acuerdo al resultado. Terminado esto hace un jmp a la
+tarea idle. 
+
+
+\end{document}
